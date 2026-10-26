@@ -1,82 +1,54 @@
+"""A seeded, single-layer softmax classifier for MNIST."""
+import argparse
 import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelBinarizer
-import tensorflow as tf
 
-
-#załadowanie bazy danych MNIST z wykorzystaniem TensorFlow
-(X_train, y_train), (X_test, y_test) = tf.keras.datasets.mnist.load_data()
-
-#przetworzenie danych na wektory cech
-X_train = X_train.reshape(-1, 784)
-X_test = X_test.reshape(-1, 784)
-
-#przetworzenie etykiet do postaci one-hot encoding
-label_binarizer = LabelBinarizer()
-y_train = label_binarizer.fit_transform(y_train)
-y_test = label_binarizer.transform(y_test)
-
-#podział danych na zbiór treningowy i testowy
-X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.2, random_state=42)
-
-#inicjalizacja wag i biasów
-np.random.seed(42)
-weights = np.random.randn(10, 784)
-bias = np.zeros(10)
-
-#funkcja aktywacji - softmax
 def softmax(x):
-    max_val = np.max(x, axis=1, keepdims=True)
-    exps = np.exp(x - max_val)
-    return exps / np.sum(exps, axis=1, keepdims=True)
+    values = np.exp(x - np.max(x, axis=1, keepdims=True))
+    return values / values.sum(axis=1, keepdims=True)
 
-#funkcja straty - cross-entropy
 def cross_entropy_loss(y_true, y_pred):
-    epsilon = 1e-9
-    y_pred = np.clip(y_pred, epsilon, 1 - epsilon)
-    return -np.mean(np.sum(y_true * np.log(y_pred), axis=1))
+    return -np.mean(np.sum(y_true * np.log(np.clip(y_pred, 1e-9, 1)), axis=1))
 
-#funkcja dokładności
 def accuracy(y_true, y_pred):
-    return np.mean(np.argmax(y_true, axis=1) == np.argmax(y_pred, axis=1))
+    return np.mean(y_true.argmax(axis=1) == y_pred.argmax(axis=1))
 
-#parametry uczenia
-learning_rate = 0.001
-epochs = 1000
-batch_size = 64
-num_batches = X_train.shape[0] // batch_size
+def train(x, labels, epochs=20, learning_rate=0.1, batch_size=64, seed=42):
+    rng = np.random.default_rng(seed)
+    y = np.eye(10)[labels]
+    weights = rng.normal(0, 0.01, (10, x.shape[1]))
+    bias = np.zeros(10)
+    for _ in range(epochs):
+        order = rng.permutation(len(x))
+        for start in range(0, len(x), batch_size):
+            indices = order[start:start + batch_size]
+            batch = x[indices]
+            gradient = (softmax(batch @ weights.T + bias) - y[indices]) / len(indices)
+            weights -= learning_rate * (gradient.T @ batch)
+            bias -= learning_rate * gradient.sum(axis=0)
+    return weights, bias
 
-#trening modelu
-for epoch in range(epochs):
-    for batch in range(num_batches):
-        #przygotowanie batcha danych treningowych
-        start_idx = batch * batch_size
-        end_idx = start_idx + batch_size
-        X_batch = X_train[start_idx:end_idx]
-        y_batch = y_train[start_idx:end_idx]
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--epochs', type=int, default=20)
+    parser.add_argument('--seed', type=int, default=42)
+    args = parser.parse_args()
+    if args.epochs < 1:
+        parser.error('--epochs must be positive')
+    # Loading/training is explicit; importing the math helpers downloads nothing.
+    from tensorflow.keras.datasets import mnist
+    (x, labels), (x_test, test_labels) = mnist.load_data()
+    x = x.reshape(-1, 784).astype(np.float64) / 255
+    x_test = x_test.reshape(-1, 784).astype(np.float64) / 255
+    order = np.random.default_rng(args.seed).permutation(len(x))
+    split = int(len(x) * 0.8)
+    training, validation = order[:split], order[split:]
+    weights, bias = train(x[training], labels[training], args.epochs, seed=args.seed)
+    for name, features, targets in [('validation', x[validation], labels[validation]),
+                                     ('test', x_test, test_labels)]:
+        expected = np.eye(10)[targets]
+        predicted = softmax(features @ weights.T + bias)
+        print(f'{name}: loss={cross_entropy_loss(expected, predicted):.4f} '
+              f'accuracy={accuracy(expected, predicted):.4f}')
 
-        #propagacja w przód
-        logits = np.dot(X_batch, weights.T) + bias
-        y_pred = softmax(logits)
-
-        #obliczenie straty i dokładności
-        loss = cross_entropy_loss(y_batch, y_pred)
-        acc = accuracy(y_batch, y_pred)
-
-        #propagacja wsteczna
-        grad_logits = y_pred - y_batch
-        grad_weights = np.dot(grad_logits.T, X_batch)
-        grad_bias = np.sum(grad_logits, axis=0)
-
-        #aktualizacja wag i biasów
-        weights -= learning_rate * grad_weights
-        bias -= learning_rate * grad_bias
-
-    #ocena modelu na zbiorze walidacyjnym
-    val_logits = np.dot(X_val, weights.T) + bias
-    val_pred = softmax(val_logits)
-    val_loss = cross_entropy_loss(y_val, val_pred)
-    val_acc = accuracy(y_val, val_pred)
-
-    #wypisanie metryk
-    print(f"Epoch {epoch+1}/{epochs} - Loss: {loss:.4f} - Accuracy: {acc:.4f} - Val Loss: {val_loss:.4f} - Val Accuracy: {val_acc:.4f}")
+if __name__ == '__main__':
+    main()
