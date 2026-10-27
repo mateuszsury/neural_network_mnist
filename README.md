@@ -24,3 +24,11 @@ synthetic fixture. No full-dataset accuracy is claimed without a recorded run.
 
 Maintainer: Mateusz Sury. Original source: MIT. MNIST retains its original data
 provenance and terms.
+
+## Project overview
+
+A seeded NumPy single-layer classifier for MNIST with explicit training and held-out evaluation.
+
+![MNIST Softmax Classifier — This is a single-layer softmax model. The diagram is not a training result or an accuracy claim.](docs/assets/presentation/overview.svg)
+
+This is a single-layer softmax model. The diagram is not a training result or an accuracy claim.
